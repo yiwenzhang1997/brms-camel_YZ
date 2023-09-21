@@ -1,0 +1,181 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+install.packages("brms")
+```
+
+
+```{r}
+# import packages
+library(tidyverse) # dplyr and ggplot2
+library(brms)
+```
+
+
+
+## import dataset
+
+there are 293 participants in the dataset.
+Each participant completed three conditions, 12-24 trials per conditions.
+
+DV: accuracy (binary: 1 or 0) \\
+
+Predictors:
+- condition type (categorical, 3 levels)
+- num_of_missed (continuous)
+- num_of_rewards (continuous)
+
+
+```{r}
+test <- read.csv("choice_test_clean_data.csv")
+test
+```
+
+#### scaling the continous variables
+```{r}
+test$num_of_missed_z = scale(test$num_of_missed)
+test$num_of_rewards_z = scale(test$num_of_rewards)
+```
+
+#### setting the reference group for a categorical variable
+```{r}
+test$condition_type = factor(test$condition_type, levels = c("EOD3", "D3", "D6"))
+contrasts(test$condition_type)
+```
+#### set priors
+```{r}
+# check the current prior (default priors)
+get_prior(formula = accuracy ~ 1 + condition_type + num_of_missed_z + 
+                  (1+ condition_type|participant_id),
+          data=test,
+          family=bernoulli(link = "logit"))
+```
+
+```{r}
+# if you want to set an informative priors
+# priors = prior(student_t(1, -0.01, 0.001), coef = num_of_missed_z)
+```
+
+
+#### running the regression
+```{r}
+# it tooks a few minutes to run
+m1 <- brms::brm(formula = accuracy ~ 1 + condition_type + num_of_missed_z + 
+                  (1+ condition_type|participant_id),
+                data=test,
+                family=bernoulli(link = "logit"),
+                cores = 4,
+                chains = 4,
+                iter = 4000,
+                warmup = 1000,
+                # prior = priors,
+                # sample_prior = "yes", # this is for getting bayes factor later
+                seed = 123)
+
+# I always save the regression output to avoid running the code above again
+save(m1, file = "brms_m1.RData")
+```
+
+# visualize posteriors
+```{r}
+load("brms_m1.RData")
+plot(m1)
+```
+
+
+```{r}
+m1.smry <- summary(m1)
+m1.smry
+```
+
+#### compare D3 and D6
+
+Priors of certain parameters cannot be saved for technical reasons. If we want to get the bayes factor (Evid.Ratio) for test two-sided hypotheses, we need to add sample_prior = "yes" in the brm() above. See ?hypothesis for more details.
+
+```{r}
+(hyp1 <- hypothesis(m1, c("condition_typeD3 - condition_typeD6 > 0", "num_of_missed_z > 0")))
+plot(hyp1)
+```
+
+### visualize the coefficient posteriors
+
+To modify the plot, add ggplot2 layers to overwrite mcmc_plot.
+
+```{r}
+mcmc_plot(m1,variable = c("b_condition_typeD3", "b_condition_typeD6","b_num_of_missed_z"), regex = TRUE, type = "areas", 
+          prob = .95, # the blue part
+          prob_outer = .99, # curve lines cutoff at 99%
+          point_est = "mean") +
+  geom_vline(xintercept = 0, alpha = 0.5) +
+  scale_y_discrete(limits = rev(c( "b_condition_typeD3",
+                                  "b_condition_typeD6",
+                                  "b_num_of_missed_z")),
+                   labels=c("b_condition_typeD3" = "D3 - EOD3",
+                            "b_condition_typeD6" = "D6 - EOD3",
+                            "b_num_of_missed_z" = "Missed Trials")) +
+  xlab("Beta") +
+  theme_bw() +
+  theme(panel.grid.major.y = element_line(size = 0.5))-> p3
+p3
+```
+
+
+
+## running the second regression model
+
+```{r}
+m2 <- brms::brm(formula = accuracy ~ 1 + condition_type + num_of_rewards_z + num_of_missed_z + 
+                          (1+ condition_type + num_of_rewards_z|participant_id),
+                data=test,
+                family=bernoulli(link = "logit"),
+                warmup = 1000,
+                iter = 4000,
+                chains = 4,
+                cores=4,
+                seed = 123)
+
+m2.smry <- summary(m2)
+save(m2.smry,m2, file = "brms_m2.RData")
+```
+
+
+```{r}
+m2.smry
+```
+
+# compare D3 and D6
+
+```{r}
+(hyp2 <- hypothesis(m2, c("condition_typeD3 - condition_typeD6 > 0")))
+plot(hyp2)
+```
+
+#### visualize the regression coefficients
+
+```{r}
+mcmc_plot(m2,variable = c("b_condition_typeD3",
+                                   "b_condition_typeD6",
+                                   "b_num_of_rewards_z",
+                                   "b_num_of_missed_z"), regex = TRUE, type = "areas", 
+          prob = 0.95, # 80% intervals
+          prob_outer = 0.99, # 99%
+          point_est = "mean") +
+  geom_vline(xintercept = 0, alpha = 0.5) +
+  scale_y_discrete(limits = rev(c("b_condition_typeD3",
+                                  "b_condition_typeD6",
+                                  "b_num_of_rewards_z",
+                                  "b_num_of_missed_z")),
+                   labels=c("b_Intercept" = "Intercept", 
+                            "b_condition_typeD6" = "D6 - EOD3",
+                            "b_condition_typeD3" = "D3 - EOD3",
+                            "b_num_of_rewards_z" = "RH",
+                            "b_num_of_missed_z" = "Missed Trials")) +
+  xlab("Beta") +
+  theme_bw() +
+  theme(panel.grid.major.y = element_line(size = 0.5))-> p4
+p4
+```
+

@@ -1,0 +1,87 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Bayes Factors for t-tests and ANOVAs
+
+```{r}
+# import packages
+library(tidyverse)
+library(BayesFactor)
+
+set.seed(1)
+```
+
+```{r}
+# import the dataset
+df <- read_csv("causal_delay_1DV_data.csv")
+df$causal_direction = factor(df$causal_direction)
+df$delay_condition = factor(df$delay_condition)
+
+df
+```
+
+## t-tests
+
+Within each delay condition, were the judgments for the positive stimuli siginificantly different from those for the negative stimuli?
+
+```{r}
+df %>%
+  ggplot(aes(x = delay_condition, y = i_strength_final, color = causal_direction)) +
+  geom_jitter(mapping = aes(color = causal_direction),
+              width=.2, height = 0.01, size=0.8, alpha = 0.2)+
+  stat_summary(fun.y=mean, geom="point", shape=20, size=4) +
+  stat_summary(fun.data=mean_cl_normal, geom = "errorbar",width=.2)+
+  scale_colour_manual(name="Datasets", values = c("#E69F00", "#0072B2")) +
+  theme_bw()+
+  theme(strip.background = element_rect(fill="white"),
+        panel.background = element_rect(fill = "white", colour = "grey50"),
+        panel.grid.major = element_line(colour = "grey90"),
+        axis.title=element_blank(),
+        text = element_text(family="Helvetica"),
+  )
+```
+
+```{r}
+t.test(formula=i_strength_final~causal_direction, data = data.frame(df))
+```
+
+
+```{r}
+ttestBF(formula=i_strength_final~causal_direction, data = data.frame(df))
+```
+r = 0.707 is the scale of the Cauchy prior.
+
+BF = 119.7265 > 100
+
+Our null hypothesis: mu1-mu2 = 0
+
+```{r}
+car::Anova(lm(i_strength_final ~ delay_condition * causal_direction, 
+                          data = df,
+                          contrasts = list(
+                            delay_condition = "contr.sum",
+                            causal_direction = "contr.sum"
+                          )),
+                       type="III")
+```
+
+```{r}
+anovaBF(i_strength_final ~ delay_condition * causal_direction, data = df, whichModels = "top")
+```
+
+BF = full model / Omitted model
+
+```{r}
+1/anovaBF(i_strength_final ~ delay_condition * causal_direction, data = df, whichModels = "top")
+```
+## different prior scales
+
+```{r}
+1/anovaBF(i_strength_final ~ delay_condition * causal_direction, data = df, whichModels = "top", rscaleFixed = "wide")
+```
+
+```{r}
+1/anovaBF(i_strength_final ~ delay_condition * causal_direction, data = df, whichModels = "top", rscaleFixed = "ultrawide")
+```
